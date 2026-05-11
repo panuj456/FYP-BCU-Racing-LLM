@@ -1,0 +1,13 @@
+ollama_data/          # Contains the heavy LLM weights
+data/*.pickle        # Your raw telemetry graphs
+__pycache__/          # Python bytecode
+raw_data/
+processed_graph_data/
+.env                  # Private environment variables
+*.log                 # Log files
+*.tar
+*.zip
+*.pyc
+*.py[cod]
+sha256
+/ollama_data

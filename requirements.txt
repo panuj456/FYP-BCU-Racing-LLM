@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+pandas
+spacy
+networkx
+torch
+ollama
+python-dotenv

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telemetry AI - Race Engineer</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #010f4E;
+            --chat-bg: #1e1e1e;
+            --user-msg: #2a52be;
+            --llm-msg: #333333;
+            --text: #e0e0e0;
+            --accent: #5F588A; 
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        header {
+            background-color: #000;
+            padding: 1rem;
+            text-align: center;
+            border-bottom: 2px solid var(--accent);
+        }
+        header h1 { margin: 0; font-size: 1.5rem; letter-spacing: 1px; }
+        
+        #chat-container {
+            flex-grow: 1;
+            padding: 2rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        .message {
+            max-width: 80%;
+            padding: 1.2rem;
+            border-radius: 8px;
+            line-height: 1.6;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .user-message {
+            background-color: var(--user-msg);
+            align-self: flex-end;
+            border-bottom-right-radius: 0;
+        }
+        .llm-message {
+            background-color: var(--llm-msg);
+            align-self: flex-start;
+            border-bottom-left-radius: 0;
+        }
+        
+        /* Markdown formatting fixes inside chat bubbles */
+        .llm-message p { margin-top: 0; }
+        .llm-message p:last-child { margin-bottom: 0; }
+        .llm-message ul { margin-bottom: 0; padding-left: 20px; }
+
+        .llm-message p, .llm-message li {
+            margin-bottom: 1.2rem; /* Adds space after every paragraph and bullet */
+            line-height: 1.7;      /* Increases space between lines of text */
+        }
+        
+        .llm-message h3 {
+            margin-top: 1.5rem;
+            color: var(--accent); /* Makes headers pop */
+        }
+        
+        .meta-data {
+            font-size: 0.75rem;
+            color: #aaa;
+            margin-top: 0.8rem;
+            text-align: right;
+            border-top: 1px solid #555;
+            padding-top: 0.5rem;
+        }
+        
+        #input-area {
+            display: flex;
+            padding: 1.5rem;
+            background-color: #000;
+            border-top: 1px solid #333;
+        }
+        #user-input {
+            flex-grow: 1;
+            padding: 1rem;
+            border: none;
+            border-radius: 6px;
+            background-color: var(--chat-bg);
+            color: var(--text);
+            font-size: 1rem;
+        }
+        #user-input:focus { outline: 1px solid var(--accent); }
+        #send-btn {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 0 2rem;
+            margin-left: 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            transition: opacity 0.2s;
+        }
+        #send-btn:hover { opacity: 0.8; }
+        #send-btn:disabled { background-color: #555; cursor: not-allowed; }
+
+        #clear-btn {
+        background-color: #333;
+        color: white;
+        border: none;
+        padding: 0 1.2rem;
+        margin-right: 0.8rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 1.2rem;
+        transition: background 0.2s;
+        }
+        
+        #clear-btn:hover {
+            background-color: #444;
+        }
+            
+        .loading { font-style: italic; color: #888; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>BCU Racing Race Engineer AI</h1>
+    </header>
+
+    <div id="chat-container">
+        <div class="message llm-message">
+            Hello! I am your Telemetry Assistant. What are we analyzing today?
+        </div>
+    </div>
+
+    <div id="input-area">
+        <input type="text" id="user-input" placeholder="e.g., Analyze session 4 and check for engine bogging..." autocomplete="off">
+        <button id="send-btn">Send</button>
+        <button id="clear-btn" title="Clear Chat">🗑️</button> 
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const userInput = document.getElementById('user-input');
+        const sendBtn = document.getElementById('send-btn');
+        const clearBtn = document.getElementById('clear-btn'); // 1. Define the clear button
+        
+        //Click Logic
+        clearBtn.addEventListener('click', () => {
+            // keeps first "welcome" message but deletes the rest
+            while (chatContainer.children.length > 1) {
+                chatContainer.removeChild(chatContainer.lastChild);
+            }
+            userInput.focus(); // Put the cursor back in the box
+        });
+
+        // renders user messages into the UI
+        function appendMessage(role, content, meta = '') {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${role}-message`;
+            
+            if (role === 'llm') {
+                // Parse markdown into HTML
+                msgDiv.innerHTML = marked.parse(content);
+            } else {
+                // Plain text for user input
+                msgDiv.textContent = content;
+            }
+
+            // Append metadata (time taken, sessions analyzed) if provided
+            if (meta) {
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'meta-data';
+                metaDiv.textContent = meta;
+                msgDiv.appendChild(metaDiv);
+            }
+
+            chatContainer.appendChild(msgDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight; // Auto-scroll to bottom
+            return msgDiv;
+        }
+
+        async function sendMessage() {
+            const query = userInput.value.trim();
+            if (!query) return;
+
+            // 1. Lock UI and show user message
+            appendMessage('user', query);
+            userInput.value = '';
+            sendBtn.disabled = true;
+            userInput.disabled = true;
+            
+            // 2. Show loading indicator
+            const loadingMsg = appendMessage('llm', 'Digging into the telemetry data... ⏳');
+            loadingMsg.classList.add('loading');
+
+            try {
+                // Send request to FastAPI endpoint
+                // Because the HTML is hosted on the same server, we can just call '/chat'
+                const response = await fetch(`${window.location.origin}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query })
+                });
+
+                if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+                
+                const data = await response.json();
+
+                // 4. Remove loading state and show the actual insight
+                chatContainer.removeChild(loadingMsg);
+                
+                // Format the metadata to show off your pipeline stats!
+                const metaText = `Inference: ${data.time_to_infer_seconds}s | Sessions: ${data.sessions_analyzed.join(', ')}`;
+                appendMessage('llm', data.insight, metaText);
+
+            } catch (error) {
+                console.error('Error:', error);
+                chatContainer.removeChild(loadingMsg);
+                appendMessage('llm', 'Error connecting to backend. Is the FastAPI server running?');
+            } finally {
+                // 5. Unlock UI
+                sendBtn.disabled = false;
+                userInput.disabled = false;
+                userInput.focus();
+            }
+        }
+
+        // Hook up the button and Enter key
+        sendBtn.addEventListener('click', sendMessage);
+        userInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>
