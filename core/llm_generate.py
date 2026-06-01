@@ -6,11 +6,12 @@ import os
 
 load_dotenv()
 
+# Local Hosted 
 class LLM_RaceEngineer:
     # 'host' must come before 'model' because it doesn't have a default value
     def __init__(self, host: str, model: str = "gemma3:4b", instructions_md: str = ""):
-        # The Client object handles the /api/chat pathing automatically
-        self.host = host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        # The Client object (From Host) handles the /api/chat pathing automatically
+        self.host = host or os.getenv("OLLAMA_HOST", "http://localhost:11434") #local host on port 11434 (ollama-server)
         self.model = model or os.getenv("OLLAMA_MODEL", "gemma3:4b")
         self.client = Client(host=self.host)
         self.instructions = instructions_md

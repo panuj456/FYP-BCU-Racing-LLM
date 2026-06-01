@@ -7,3 +7,7 @@ networkx
 torch
 ollama
 python-dotenv
+pyserial
+asyncio
+websockets
+paho-mqtt>=2.0.0

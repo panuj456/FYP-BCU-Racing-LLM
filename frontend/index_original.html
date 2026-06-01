@@ -355,37 +355,20 @@ let globalHeader = [];
     
 // Channel definitions for the selector
 const CHANNELS = {
-    'TPS':             { label: 'TPS (%)',      color: '#ffcc00' },
-    'Speed':           { label: 'Speed (mph)',  color: '#00ff00' },
-    'RPM':             { label: 'RPM',          color: '#ff6600' },
-    'Brake_Pressure':  { label: 'Brake Press',  color: '#ff4444' },
-    'Lambda':          { label: 'Lambda',       color: '#00ccff' },
-    'Oil_Pressure':    { label: 'Oil P',        color: '#cc88ff' },
-    'Fuel_Pressure':   { label: 'Fuel P',       color: '#ff88cc' },
-    'Coolant_Temp':    { label: 'Coolant',      color: '#ff2244' },
-    'Oil_Temp':        { label: 'Oil Temp',     color: '#ff8833' },
-    'Battery_Voltage': { label: 'Battery',      color: '#88ff88' },
-    'Fan_Speed':       { label: 'Fan Speed',    color: '#ffff00' },
-    'Gear':            { label: 'Gear',         color: '#ffffff' }
-};
-
-const METRIC_MAP = {
-    'TPS': 'TPS',
-    'Speed': 'Speed',
-    'RPM': 'RPM',
-    'Brake_Press': 'Brake_Pressure',
-    'Lambda': 'Lambda',
-    'Oil_P': 'Oil_Pressure',
-    'Fuel_P': 'Fuel_Pressure',
-    'Coolant': 'Coolant_Temp',
-    'Oil_Temp': 'Oil_Temp',
-    'Battery': 'Battery_Voltage',
-    'Fan_Speed': 'Fan_Speed',
-    'Gear': 'Gear'
+    speed:     { label: 'Speed (mph)',  color: '#00ff00', yID: 'y' },
+    tps:       { label: 'TPS (%)',      color: '#ffcc00', yID: 'yTps' },
+    rpm:       { label: 'RPM',          color: '#ff6600', yID: 'yRpm' },
+    brake:     { label: 'Brake Press',  color: '#ff4444', yID: 'y' },
+    lambda:    { label: 'Lambda',       color: '#00ccff', yID: 'y' },
+    oil_p:     { label: 'Oil P',        color: '#cc88ff', yID: 'y' },
+    fuel_p:    { label: 'Fuel P',       color: '#ff88cc', yID: 'y' },
+    coolant_t: { label: 'Coolant',      color: '#ff2244', yID: 'y' },
+    oil_t:     { label: 'Oil Temp',     color: '#ff8833', yID: 'y' },
+    battery:   { label: 'Battery',      color: '#88ff88', yID: 'y' },
 };
 // Default active channels
-//const selectedChannels = new Set(['speed', 'tps', 'rpm', 'brake', 'lambda', 'oil_p', 'fuel_p', 'coolant_t', 'oil_t', 'battery']);
-let selectedChannels = new Set();
+const selectedChannels = new Set(['speed', 'tps', 'rpm']);
+
 // ═══════════════════════════════════════════════════════════
 //  1. SPA NAVIGATION
 // ═══════════════════════════════════════════════════════════
@@ -599,22 +582,11 @@ async function loadSessionData() {
         if (vals.length < 16) return null; // Ensure row has enough columns
         
             return {
-                Timestamp:      vals[0],
-                TPS:            parseFloat(vals[1])  || 0,
-                Brake_Pressure: parseFloat(vals[2])  || 0,
-                Speed:          parseFloat(vals[3])  || 0,
-                Gear:           parseFloat(vals[4])  || 0,
-                RPM:            parseFloat(vals[5])  || 0,
-                Oil_Pressure:   parseFloat(vals[6])  || 0,
-                Fuel_Pressure:  parseFloat(vals[7])  || 0,
-                Oil_Temp:       parseFloat(vals[8])  || 0,
-                Fuel_Temp:      parseFloat(vals[9])  || 0,
-                Coolant_Temp:   parseFloat(vals[10]) || 0,
-                Lambda:         parseFloat(vals[11]) || 0,
-                Fan_Speed:      parseFloat(vals[12]) || 0,
-                Battery_Voltage:parseFloat(vals[13]) || 0,
-                Longitude:      parseFloat(vals[14]) || 0,
-                Latitude:       parseFloat(vals[15]) || 0
+                Timestamp: vals[0],
+                TPS: vals[1],
+                // ... (you can add other fields here)
+                Longitude: vals[14], // Direct index access
+                Latitude: vals[15]   // Direct index access
             };
         }).filter(r => r !== null);
 
@@ -635,7 +607,7 @@ async function loadSessionData() {
 
         parsedCSVData = { header: lines[0].split(','), rows: cleanRows };
 
-        buildChannelSelector(lines[0].split(','));
+        buildChannelSelector(globalHeader);
         renderHistoricalChart();
         console.log("Rows 10 to 30 Latitude:", cleanRows.slice(10, 30).map(r => r.Latitude));
         renderHistoricalMap(cleanRows);
@@ -675,24 +647,15 @@ function buildChannelSelector(header) {
     const wrapper = document.createElement('div');
     wrapper.style.display = 'flex'; wrapper.style.flexWrap = 'wrap'; wrapper.style.gap = '5px';
 
-    // Only map headers that exist in our CHANNELS definition
-    Object.keys(CHANNELS).forEach(key => {
-        if (!header.includes(key)) return;
+    const plottable = Object.keys(CHANNELS).filter(k => header.includes(k) || header.includes(k.toLowerCase()));
 
+    plottable.forEach(key => {
         const btn = document.createElement('button');
         btn.textContent = CHANNELS[key].label;
-        btn.id = key;
-        
-        // Style based on current Set state
         btn.className = selectedChannels.has(key) ? 'active-chan' : 'inactive-chan';
-        
         btn.onclick = () => {
-            // Toggle in state
-            selectedChannels.has(key) ? selectedChannels.delete(key) : selectedChannels.add(key);
-            // Update UI class
+            toggleChannel(key);
             btn.className = selectedChannels.has(key) ? 'active-chan' : 'inactive-chan';
-            // Trigger Re-render
-            renderHistoricalChart();
         };
         wrapper.appendChild(btn);
     });
@@ -729,44 +692,31 @@ function renderHistoricalChart() {
 function renderHistoricalChart() {
     if (!parsedCSVData || !parsedCSVData.rows.length) return;
 
-    // 1. Initialize Chart if it doesn't exist
+    // 1. Identify metrics (exclude Timestamp, Lat, Lon)
+    const metrics = Object.keys(parsedCSVData.rows[0]).filter(k => 
+        !['Timestamp', 'Latitude', 'Longitude'].includes(k)
+    );
+
+    // 2. Initialize Chart if it doesn't exist
     if (!histChart) {
         const ctx = document.getElementById('historicalChart').getContext('2d');
         histChart = new Chart(ctx, {
             type: 'line',
             data: { labels: [], datasets: [] },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: false,
-                // CRITICAL: This allows different metrics to have their own Y-axis
-                scales: {
-                    y: { type: 'linear', display: true, position: 'left' },
-                    y2: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
-                }
-            }
+            options: { responsive: true, animation: false }
         });
     }
 
-    const metrics = Array.from(selectedChannels);
+    // 3. Prepare data for ALL metrics
     histChart.data.labels = parsedCSVData.rows.map(r => r.Timestamp);
+    histChart.data.datasets = metrics.map(m => ({
+        label: m,
+        data: parsedCSVData.rows.map(r => parseFloat(r[m]) || 0),
+        borderWidth: 1,
+        fill: false
+    }));
 
-    // 2. Assign datasets to either the left (y) or right (y2) axis
-    histChart.data.datasets = metrics.map(metric => {
-        const key = METRIC_MAP[metric]; // Use your mapping object
-        const isHighValue = ['RPM', 'Speed'].includes(key); // Metrics with large ranges
-        
-        return {
-            label: CHANNELS[metric] ? CHANNELS[metric].label : metric,
-            data: parsedCSVData.rows.map(r => parseFloat(r[key]) || 0),
-            borderColor: CHANNELS[metric] ? CHANNELS[metric].color : '#cccccc',
-            yAxisID: isHighValue ? 'y2' : 'y', // High values go to right axis
-            borderWidth: 2,
-            fill: false,
-            pointRadius: 0
-        };
-    });
-
+    // 4. Force update
     histChart.update();
 }
 

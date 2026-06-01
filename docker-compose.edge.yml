@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  fastapi:
+    build: .
+    container_name: telemetry-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_MODE=${APP_MODE:-edge}
+      - OLLAMA_HOST=http://ollama-server:11434
+    volumes:
+      - ./data:/app/data
+      - ./frontend:/app/frontend
+      - ./core:/app/core
+    networks:
+      - telem-net
+    depends_on:
+      - mosquitto
+      - ollama
+
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto-broker
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./edge_node/mosquitto_local.conf:/mosquitto/config/mosquitto.conf
+    networks:
+      - telem-net
+
+  ollama:
+    image: ollama/ollama:rocm
+    container_name: ollama-server
+    restart: unless-stopped
+    environment:
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION}
+    devices:
+      - "/dev/kfd:/dev/kfd"
+      - "/dev/dri:/dev/dri"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    networks:
+      - telem-net
+    shm_size: '8gb'
+
+networks:
+  telem-net:
+    external: true

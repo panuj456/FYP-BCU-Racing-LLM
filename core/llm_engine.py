@@ -5,6 +5,8 @@ from typing import Dict, List, Any
 import uuid
 import networkx as nx
 
+
+# STG Adapter layer which handles prompt engineering
 class STGAdapter:
     def __init__(self, instructions: str = "", role: str = "Formula Student Race Engineer"):
         self.role = role
@@ -53,6 +55,9 @@ class STGAdapter:
             ]
         }
 
+    # Encoding and Final Formatting of values to String
+    # Gives LLM pre-defined context clues rather than internal reasoning of values
+    # As a result less prone to error
     def encode(self, rich_tokens, query):
         lines = []
         curr_session = None
@@ -61,7 +66,8 @@ class STGAdapter:
             if sess != curr_session:
                 lines.append(f"\n--- SESSION {sess} ---")
                 curr_session = sess
-
+            
+            #extracting specific data from labels
             m = t['metrics']
             start = t['time'][0]
             label = t['label'].split('|')[1] if '|' in str(t['label']) else str(t['label'])
@@ -96,14 +102,13 @@ class STGAdapter:
                     except (ValueError, TypeError):
                         clean_m[label_name] = str(val) # Fallback if data is weird
                 else:
-                    # If it's a metric not in the map, just cast it to float safely
+                    # If metric not in map, cast to float
                     try:
                         clean_m[key] = round(float(val), 2)
                     except (ValueError, TypeError):
                         clean_m[key] = str(val)
 
-            # --- Final Append ---
-            # Now we pass {clean_m} instead of {m}
+            # Final Append - Then sent to cot_encode for LLM Formatting
             lines.append(
                 f"[{start:.2f}] "
                 f"Metrics:{clean_m} EVENT:{event_ctx} Driver:{drv} "
@@ -112,7 +117,10 @@ class STGAdapter:
         telemetry = "\n".join(lines)
         #print(telemetry)
         return f"\n{telemetry}\n"
-    
+
+    # Organising data and questions into a chain of thought prompting stratergy
+    # Force LLM to think logically and procedurally before providing insight.
+    # Includes Tables given to LLM prompt pre-made - reduces risk of hallucination.
     def cot_encode(self, rich_tokens, query, domain):
         base_questions = [
             "1. What was the highest RPM achieved? In which gear and regime?",
@@ -162,8 +170,10 @@ class STGAdapter:
         )
         return prompt
 
+    # Helper function takes rich tokens from encode(), outputs the most relevant nodes using regex
+    # Helps reduce down further from STG Tokenizer.
     def _parse_telemetry_string(self, text: str) -> List[Dict]:
-        """Extracts stats from your specific f-string format using improved Regex."""
+        """Extracts stats from specific f-string format using improved Regex."""
         nodes = []
         lines = text.strip().split('\n')
         
@@ -171,7 +181,7 @@ class STGAdapter:
             if not line.startswith('['): 
                 continue 
             
-            # 1. Improved Regex: Supports negative numbers (-?) and different naming conventions
+            # Regex: Supports negative numbers (-?) and different naming conventions
             time_match = re.search(r'\[([\d\.]+)\]', line)
             
             # Look for RPM or rpm_mean (optional in braking)
@@ -189,7 +199,7 @@ class STGAdapter:
             event_match = re.search(r'EVENT:([^\s]+)', line)
             node_match = re.search(r'Node:([\d_]+)', line)
             
-            # 2. Relaxed Condition: Only require time and node_match to proceed
+            # Relaxed Condition: Only require time and node_match to proceed
             if time_match and node_match:
                 session_id = node_match.group(1).split('_')[0]
                 
@@ -208,6 +218,7 @@ class STGAdapter:
                 })
         return nodes
 
+    # Helper function to Build Tables based on all nodes in STG graph pickle file (not just parsed nodes)
     def _build_session_summary(self, nodes: List[Dict]) -> str:
         """Builds high-level stats from the parsed nodes."""
         if not nodes:
@@ -243,6 +254,7 @@ class STGAdapter:
             
         return "\n".join(lines)
 
+    # Prompts into LLM Telemetry for each regime category, feeding a sample of First 3, Middle 2, Last 3
     def _build_regime_grouped_telemetry(self, nodes: List[Dict], domain: str) -> str:
         """Groups your raw f-strings by regime and samples them to save LLM context."""
         if domain == 'braking':
@@ -274,6 +286,7 @@ class STGAdapter:
                     
         return "\n".join(lines)
 
+    # Helper Function used inside _build_regimed_group_telemetry to decide which nodes are fed to the LLM
     def _sample_nodes(self, nodes: list, max_per_regime: int = 14) -> list:
         """
         Modified to provide a 20-30 node resolution.
@@ -296,7 +309,6 @@ class STGAdapter:
         else:
             body = []
                 
-        # COMBINE (Ensure this is indented correctly!)
         combined = head + body + tail
         
         # Final Deduplication check
@@ -309,6 +321,7 @@ class STGAdapter:
                 
         return sampled
 
+    # Helper Function to produce gear table.
     def _generate_gear_table(self, nodes: List[Dict]) -> str:
         """
         Creates a markdown table of gear utilization to 

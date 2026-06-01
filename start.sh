@@ -1,61 +1,53 @@
 #!/bin/bash
+set -e
 
-echo "Starting Telemetry AI Stack..."
+echo "=================================================="
+echo "          STARTING TELEMETRY AI STACK             "
+echo "=================================================="
 
-# Detect GPU Vendor
+# 1. ENSURE DOCKER NETWORK EXISTS
+if ! docker network inspect telem-net >/dev/null 2>&1; then
+    echo "Creating isolated Docker network: telem-net..."
+    docker network create telem-net
+fi
+
+# 2. CLEAN UP OLD INSTANCES (Prevents conflicts)
+echo "Cleaning up any stale telemetry containers..."
+docker-compose -f docker-compose.edge.yml down
+docker stop telemetry-app ollama-server mosquitto-broker hardware-publisher 2>/dev/null || true
+docker rm telemetry-app ollama-server mosquitto-broker hardware-publisher 2>/dev/null || true
+
+# 3. DETECT GPU ARCHITECTURE
 if command -v nvidia-smi &> /dev/null; then
-    GPU_TYPE="NVIDIA"
-    echo "NVIDIA GPU detected. Using CUDA configuration."
+    export GPU_TYPE="NVIDIA"
+    echo "SUCCESS: NVIDIA GPU detected."
 elif lspci | grep -i "vga" | grep -i "AMD" &> /dev/null; then
-    GPU_TYPE="AMD"
-    echo "AMD GPU detected. Using ROCm configuration."
+    export GPU_TYPE="AMD"
+    export HSA_OVERRIDE_GFX_VERSION=10.3.0
+    echo "SUCCESS: AMD GPU detected. Target: gfx1030"
 else
-    GPU_TYPE="CPU"
-    echo "No supported GPU detected. Falling back to CPU (Slow)."
+    export GPU_TYPE="CPU"
+    echo "WARNING: No dedicated GPU found."
 fi
 
-# Stop existing container if it exists
-docker stop ollama-server 2>/dev/null && docker rm ollama-server 2>/dev/null
+# 4. LAUNCH VIA DOCKER COMPOSE
+echo "Launching Edge Infrastructure..."
+export APP_MODE="edge"
+# This single command spins up FastAPI, Mosquitto, Ollama, AND the Hardware Publisher!
+docker-compose -f docker-compose.edge.yml up --build -d
 
-#Start Ollama in the background
-# Launch based on detection
-if [ "$GPU_TYPE" == "NVIDIA" ]; then
-    docker run -d \
-      -v $(pwd)/ollama_data:/root/.ollama \
-      --gpus all \
-      --network fyp-net \
-      --name ollama-server \
-      ollama/ollama:latest
+# 5. SYNC CHAT COMPLETION MODELS
+echo "Waiting for Ollama API handshake to initialize..."
+until docker exec ollama-server ollama list >/dev/null 2>&1; do
+    sleep 2
+done
 
-elif [ "$GPU_TYPE" == "AMD" ]; then
-    echo "Applying GFX override for $GPU_TYPE (Target: gfx1030)..."
-    docker run -d \
-      -v $(pwd)/ollama_data:/root/.ollama \
-      --device /dev/kfd \
-      --device /dev/dri \
-      --shm-size 8G \
-      --network fyp-net \
-      --name ollama-server \
-      -e HSA_OVERRIDE_GFX_VERSION=10.3.0 \
-      ollama/ollama:rocm
-else
-    # CPU Fallback
-    docker run -d \
-      -v $(pwd)/ollama_data:/root/.ollama \
-      --network fyp-net \
-      --name ollama-server \
-      ollama/ollama:latest
-fi
-
-# Ensures LLM model is downloaded
-echo "Checking Gemma 3 model..."
+echo "Verifying local LLM assets (Gemma 3)..."
 docker exec -it ollama-server ollama pull gemma3:4b
 
-# Start the Telemetry App
-echo "Launching FastAPI Application..."
-docker run -it --rm \
-  --network fyp-net \
-  --env-file .env \
-  --name telemetry-app \
-  -p 8000:8000 \
-  telemetry-app
+
+
+echo "=================================================="
+echo "  System Online!                                  "
+echo "  View Dashboard: http://localhost:8000           "
+echo "=================================================="
