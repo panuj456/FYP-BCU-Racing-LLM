@@ -134,11 +134,21 @@ async def websocket_telemetry(websocket: WebSocket):
 # ─────────────────────────────────────────────────────────
 @app.get("/api/status")
 async def get_status():
+    # Dynamically read the state from the background telemetry service thread
+    is_online = getattr(telem_service, "antenna_online", False)
+    last_heartbeat = getattr(telem_service, "last_antenna_heartbeat", 0)
+    
+    # Expiry Check: If a heartbeat hasn't arrived in 4 seconds, mark it offline
+    if time.time() - last_heartbeat > 4.0:
+        is_online = False
+
     return {
-        "status": "ONLINE",
+        # 'LIVE' flips the frontend antenna text to green ONLINE
+        "status": "LIVE" if is_online else "OFFLINE",
         "app_mode": APP_MODE,
         "session_active": telem_service.session_active,
-        "session_start_time": telem_service.session_start_time
+        "session_start_time": telem_service.session_start_time,
+        "port": "/dev/ttyACM0"
     }
 
 @app.post("/api/session/start")
@@ -165,22 +175,17 @@ async def debug_paths():
     if os.path.exists(ARCHIVE_PATH):
         #outbox_files = os.listdir(OUTBOX_PATH)
         archive_files = os.listdir(ARCHIVE_PATH)
-    return { #left as outbox for now as will have to change index.html or api routing
-        "base_dir":      BASE_DIR,
-        "outbox_path":   ARCHIVE_PATH,
-        "outbox_exists": os.path.exists(ARCHIVE_PATH),
-        "outbox_files":  archive_files,
-        "cwd":           os.getcwd(),
-    }
-    '''
     return {
         "base_dir":      BASE_DIR,
+        "archive_path":   ARCHIVE_PATH,
+        "archive_exists": os.path.exists(ARCHIVE_PATH),
+        "archive_files":  archive_files,
         "outbox_path":   OUTBOX_PATH,
         "outbox_exists": os.path.exists(OUTBOX_PATH),
         "outbox_files":  outbox_files,
         "cwd":           os.getcwd(),
     }
-    '''
+
 
 @app.get("/api/sessions")
 async def list_sessions():

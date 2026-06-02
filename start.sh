@@ -17,6 +17,7 @@ docker-compose -f docker-compose.edge.yml down
 docker stop telemetry-app ollama-server mosquitto-broker hardware-publisher 2>/dev/null || true
 docker rm telemetry-app ollama-server mosquitto-broker hardware-publisher 2>/dev/null || true
 
+
 # 3. DETECT GPU ARCHITECTURE
 if command -v nvidia-smi &> /dev/null; then
     export GPU_TYPE="NVIDIA"

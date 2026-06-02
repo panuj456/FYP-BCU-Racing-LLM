@@ -21,6 +21,9 @@ class TelemetryService:
         self.loop = None
         self.session_start_time = None
 
+        self.antenna_online = False
+        self.last_antenna_heartbeat = 0
+
         # Asyncio Queue that bridges the synchronous MQTT thread to the FastAPI WebSocket loop
         self.queue = asyncio.Queue(maxsize=100)
 
@@ -42,31 +45,64 @@ class TelemetryService:
         self.mqtt_client.loop_start()
 
     def _on_connect(self, client, userdata, flags, rc, properties=None):
-        print("| BACKEND | Subscribed to live telemetry stream from Mosquitto.")
+        print("| BACKEND | Subscribed to telemetry streams from Mosquitto.")
+        # Subscribe to BOTH topics
         client.subscribe("bcu-racing/telemetry/live")
+        client.subscribe("bcu-racing/telemetry/status")
         
     def _on_message(self, client, userdata, msg):
-        """Fires ONLY when real data arrives from the antenna over MQTT."""
+        """Routes incoming MQTT packets based on their topic."""
         try:
             packet = json.loads(msg.payload.decode())
             
-            # 1. Send to the live Dashboard UI
-            if self.loop:
-                def safe_push():
-                    if self.queue.full():
-                        try: self.queue.get_nowait()
-                        except: pass
-                    self.queue.put_nowait(packet)
-                self.loop.call_soon_threadsafe(safe_push)
+            # 1. Handle Antenna Status Heartbeats
+            if msg.topic == "bcu-racing/telemetry/status":
+                self.antenna_online = (packet.get("antenna") == "ONLINE")
+                self.last_antenna_heartbeat = time.time()
+                print(f"| BACKEND | Heartbeat received: {packet}")
+                return
 
-            # 2. Record to active session (Only happens if data is actually received)
-            if self.session_active and self.writer:
-                row = [packet.get(k.lower(), packet.get(k, 0)) for k in self.headers]
-                self.writer.writerow(row)
-                self.file.flush()
-                
+            # 2. Handle Live Data Stream
+            if msg.topic == "bcu-racing/telemetry/live":
+            # A. Send to the live Dashboard UI (always, even if not recording)
+                if self.loop:
+                    def safe_push():
+                        if self.queue.full():
+                            try: self.queue.get_nowait()
+                            except: pass
+                        self.queue.put_nowait(packet)
+                    self.loop.call_soon_threadsafe(safe_push)
+
+                # B. Record to CSV (only happens if the user clicked "Start Session")
+                if self.session_active and getattr(self, 'writer', None):
+                    row = [packet.get(k.lower(), packet.get(k, 0)) for k in self.headers]
+                    self.writer.writerow(row)
+                    self.file.flush()
+                    
         except Exception as e:
             print(f"| MQTT ERROR | Failed processing packet: {e}")
+    """
+    def on_message(client, userdata, msg):
+        try:
+            payload = json.loads(msg.payload.decode())
+            
+            # 1. Handle Antenna Status Updates
+            if msg.topic == "bcu-racing/telemetry/status":
+                telem_service.antenna_online = (payload.get("antenna") == "ONLINE")
+                telem_service.last_antenna_heartbeat = time.time()
+                return
+    
+            # 2. Stream Live Metrics regardless of session state
+            if msg.topic == "bcu-racing/telemetry/live":
+                # Always feed the websocket queue so the dashboard updates live
+                asyncio.run_coroutine_threadsafe(telem_service.queue.put(payload), telem_service.loop)
+                
+                # Only log/write to CSV if the session is officially recording
+                if telem_service.session_active:
+                    telem_service.save_to_csv(payload)
+        except Exception as e:
+            print(f"MQTT Callback Error: {e}")
+    """
 
     def start_session(self, session_name):
         os.makedirs("data/active", exist_ok=True)
@@ -90,10 +126,16 @@ class TelemetryService:
 
         self.session_active = False
         self.session_start_time = None
-        self.file.close() 
+        
+        if hasattr(self, 'file') and self.file:
+            self.file.close()
         
         outbox_filepath = f"data/outbox/{self.session_name}.csv"
+        archive_filepath = f"data/archive/{self.session_name}.csv"
+        #archive_filepath = os.path.join("data", "archive", f"{self.session_name}.csv")
+        
         shutil.move(self.active_filepath, outbox_filepath)
+        shutil.copy2(self.active_filepath, archive_filepath)
         print(f"| LOG | Session complete. Moved to Outbox.")
 
     

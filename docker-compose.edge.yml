@@ -47,6 +47,19 @@ services:
       - telem-net
     shm_size: '8gb'
 
+  hardware-publisher:
+    build:
+      context: ./edge_node
+      dockerfile: Dockerfile.publisher
+    container_name: hardware_publisher
+    restart: always
+    privileged: true
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"
+    depends_on:
+      - mosquitto
+    networks:
+      - telem-net  # <--- ADD THIS LINE TO JOIN THE CORES NETWORK
 networks:
   telem-net:
     external: true

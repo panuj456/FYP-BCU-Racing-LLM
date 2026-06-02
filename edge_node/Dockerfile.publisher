@@ -1,0 +1,17 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+
+# Install dependencies required by the hardware publisher
+RUN pip install --no-cache-dir pyserial paho-mqtt
+
+# Copy the python script into the container
+COPY hardware_publisher.py .
+
+# Set an environment variable so the script knows it is inside Docker
+ENV MQTT_HOST=mosquitto
+
+# Execute the publisher
+CMD ["python", "hardware_publisher.py"]
